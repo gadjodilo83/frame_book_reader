@@ -13,6 +13,7 @@ dependencies:
   logging: ^1.2.0
   simple_frame_app:
     git: https://github.com/CitizenOneX/simple_frame_app.git
+  provider: ^6.0.0
 
 dev_dependencies:
   flutter_test:
