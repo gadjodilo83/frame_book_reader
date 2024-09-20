@@ -28,15 +28,14 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     });
   }
 
-  final List<String> _textChunks = [];
-  final List<String> _wrappedChunks = []; // Neue Liste für umgebrochene Zeilen
+  final List<String> _wrappedChunks = []; // Liste für umgebrochene Zeilen
   List<String> _visibleLines = [];
   int _currentLine = 0;
   bool _isTyping = false;
-  double _typewriterSpeed = 0.01; // Sekunden pro Buchstabe (angepasst)
+  double _typewriterSpeed = 0.03; // Sekunden pro Buchstabe
   int _currentCharIndex = 0;
-  final int _maxLinesOnScreen = 4; // Maximal 4 Zeilen auf dem Bildschirm
-  final int _chunkSize = 64; // Maximale Zeichenanzahl pro Chunk
+  final int _maxLinesOnScreen = 3; // Maximal 3 Zeilen auf dem Bildschirm
+  final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
 
   @override
   Future<void> run() async {
@@ -53,16 +52,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         File file = File(result.files.single.path!);
 
         String content = await file.readAsString();
-        _textChunks.clear();
-        _wrappedChunks.clear(); // Leere die umgebrochenen Zeilen
+        _log.info('Dateiinhalt erfolgreich geladen.');
+
+        _wrappedChunks.clear();
         setState(() {
-          _textChunks.addAll(content.split('\n'));
-          for (String chunk in _textChunks) {
-            _wrappedChunks.addAll(_wrapTextToFit(chunk, 30));
-          }
+          // Ersetze Zeilenumbrüche durch Leerzeichen, um den gesamten Text als einen Absatz zu behandeln
+          String singleParagraph = content.replaceAll('\n', ' ');
+          _wrappedChunks.addAll(_wrapTextToFit(singleParagraph, _chunkSize));
           _currentLine = 0;
           _currentCharIndex = 0;
-          _visibleLines.clear(); // Leere die sichtbaren Zeilen
+          _visibleLines.clear();
         });
 
         _startTypewriterEffect();
@@ -80,7 +79,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   @override
   Future<void> cancel() async {
     currentState = ApplicationState.ready;
-    _textChunks.clear();
     _wrappedChunks.clear();
     _visibleLines.clear();
     _stopTypewriterEffect();
@@ -102,14 +100,13 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   Future<void> _runTypewriterEffect() async {
     while (_isTyping && _currentLine < _wrappedChunks.length) {
       String wrappedLine = _wrappedChunks[_currentLine];
-      _log.info('Verarbeite Zeile $_currentLine: $wrappedLine');
+      _log.info('Verarbeite Zeile $_currentLine: "$wrappedLine"');
 
       for (; _currentCharIndex < wrappedLine.length; _currentCharIndex++) {
         if (!_isTyping) break;
 
         String char = wrappedLine[_currentCharIndex];
         _addCharacterToVisibleText(char);
-        _log.info('Füge Zeichen hinzu: $char');
 
         // Sende nach jedem Zeichen
         await _sendTextToFrame();
@@ -134,54 +131,56 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       setState(() {}); // Update die UI
 
       // Kurze Pause zwischen den Zeilen
-      await Future.delayed(Duration(milliseconds: 10));
+      await Future.delayed(Duration(milliseconds: 100));
     }
 
     _isTyping = false;
     _log.info('Typewriter-Effekt abgeschlossen.');
   }
 
-  // Verbessertes Wrap-Text zu Zeilen basierend auf Wortgrenzen
+  // Optimierte Textumbruch-Funktion basierend auf Wortgrenzen
   List<String> _wrapTextToFit(String text, int maxCharsPerLine) {
     List<String> lines = [];
-    List<String> words = text.split(' ');
+    List<String> words = text.split(RegExp(r'\s+')); // Splitte anhand von Leerzeichen
     String currentLine = '';
 
     for (String word in words) {
-      if (word.length > maxCharsPerLine) {
-        // Wenn ein Wort länger ist als maxCharsPerLine, splitte es
-        while (word.length > maxCharsPerLine) {
-          String part = word.substring(0, maxCharsPerLine);
-          lines.add(part);
-          word = word.substring(maxCharsPerLine);
-        }
-        if (word.isNotEmpty) {
-          if ((currentLine.length + word.length + (currentLine.isEmpty ? 0 : 1)) <= maxCharsPerLine) {
-            currentLine += (currentLine.isEmpty ? '' : ' ') + word;
-          } else {
-            if (currentLine.isNotEmpty) {
-              lines.add(currentLine);
-            }
-            currentLine = word;
-          }
-        }
+      word = word.trim();
+
+      if (word.isEmpty) continue;
+
+      // Berechne die potenzielle Länge der aktuellen Zeile nach Hinzufügen des Wortes
+      int prospectiveLength = currentLine.isEmpty ? word.length : currentLine.length + 1 + word.length;
+
+      if (prospectiveLength <= maxCharsPerLine) {
+        // Füge das Wort zur aktuellen Zeile hinzu
+        currentLine += (currentLine.isEmpty ? '' : ' ') + word;
       } else {
-        if ((currentLine.length + word.length + (currentLine.isEmpty ? 0 : 1)) <= maxCharsPerLine) {
-          currentLine += (currentLine.isEmpty ? '' : ' ') + word;
-        } else {
-          if (currentLine.isNotEmpty) {
-            lines.add(currentLine);
+        if (currentLine.isNotEmpty) {
+          lines.add(currentLine);
+        }
+
+        // Wenn das Wort selbst länger ist als maxCharsPerLine, splitte es
+        if (word.length > maxCharsPerLine) {
+          int start = 0;
+          while (start < word.length) {
+            int end = (start + maxCharsPerLine) < word.length ? start + maxCharsPerLine : word.length;
+            lines.add(word.substring(start, end));
+            start += maxCharsPerLine;
           }
+          currentLine = '';
+        } else {
+          // Beginne eine neue Zeile mit dem aktuellen Wort
           currentLine = word;
         }
       }
     }
 
+    // Füge die letzte Zeile hinzu, falls vorhanden
     if (currentLine.isNotEmpty) {
       lines.add(currentLine);
     }
 
-    _log.info('Umgebrochene Zeilen: ${lines.join(', ')}');
     return lines;
   }
 
@@ -206,9 +205,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         msgCode: 0x0a,
         text: fullText, // Sende den gesamten sichtbaren Text
       ));
-      _log.info('Nachricht an Frame gesendet: $fullText');
-
-      // Keine zusätzliche Verzögerung hier, da die Schleife bereits eine Verzögerung hat
+      _log.info('Nachricht an Frame gesendet: "$fullText"');
     } catch (e) {
       _log.warning('Fehler beim Senden der Nachricht an das Frame: $e');
     }
@@ -218,10 +215,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     // Füge ein neues Zeichen zur aktuellen Zeile hinzu
     if (_currentCharIndex == 0) {
       _visibleLines.add(char);
-      _log.info('Neue Zeile hinzugefügt: $char');
     } else {
       _visibleLines[_visibleLines.length - 1] += char;
-      _log.info('Zeichen zur aktuellen Zeile hinzugefügt: $char');
     }
     // Kein setState hier notwendig, da wir nur beim Senden aktualisieren
   }
@@ -252,7 +247,10 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   _visibleLines.isNotEmpty
                       ? _visibleLines.join('\n')
                       : 'Laden Sie eine Datei',
-                  style: const TextStyle(fontSize: 24),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontFamily: 'Courier', // Feste Schriftart für Konsistenz
+                  ),
                 ),
                 const Spacer(),
               ],
@@ -278,9 +276,9 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
             width: 200,
             child: Slider(
               value: _typewriterSpeed,
-              min: 0.005, // Angepasst auf 0.02 für bessere Balance
+              min: 0.03, // Angepasst auf 0.03 Sekunden als Minimalwert
               max: 0.2,
-              divisions: 18,
+              divisions: 17, // Angepasst basierend auf dem neuen Bereich
               label: '${_typewriterSpeed.toStringAsFixed(2)} s/Buchstabe',
               onChanged: (value) {
                 setState(() {
