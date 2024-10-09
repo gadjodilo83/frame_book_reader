@@ -92,12 +92,15 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     _log.info('Typewriter-Effekt gestartet.');
     _currentLine = _startLine; // Setze die Startzeile für den Typewriter-Effekt
     _currentCharIndex = 0; // Setze den Zeichenindex zurück, um von Anfang der neuen Startzeile zu beginnen
+    _visibleLines.clear(); // Setze sichtbare Zeilen zurück, damit der neue Text wieder bei der obersten Zeile beginnt
+    _sendTextToFrame(clear: true); // Lösche den bestehenden Text auf dem Frame
     _runTypewriterEffect();
   }
 
   void _stopTypewriterEffect() {
     _isTyping = false;
     _log.info('Typewriter-Effekt gestoppt.');
+    _sendTextToFrame(clear: true); // Lösche den bestehenden Text auf dem Frame
   }
 
   Future<void> _runTypewriterEffect() async {
@@ -180,25 +183,20 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     return lines;
   }
 
-  Future<void> _sendTextToFrame() async {
+  Future<void> _sendTextToFrame({bool clear = false}) async {
     try {
       if (frame == null) {
         _log.warning('Frame ist nicht verbunden.');
         return;
       }
 
-      String fullText = _visibleLines.join('\n');
-
-      if (fullText.trim().isEmpty) {
-        _log.warning('Leere Nachricht wird nicht gesendet.');
-        return;
-      }
+      String fullText = clear ? "" : _visibleLines.join('\n');
 
       await frame!.sendMessage(TxPlainText(
         msgCode: 0x0a,
         text: fullText,
       ));
-      _log.info('Nachricht an Frame gesendet: "$fullText"');
+      _log.info('Nachricht an Frame gesendet: "${clear ? "Leeren Text gesendet" : fullText}"');
     } catch (e) {
       _log.warning('Fehler beim Senden der Nachricht an das Frame: $e');
     }
@@ -251,6 +249,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                             _startLine = index;
                             _currentLine = _startLine; // Setze aktuelle Zeile auf die neue Startzeile
                             _currentCharIndex = 0; // Setze den Zeichenindex zurück
+                            _visibleLines.clear(); // Lösche die sichtbaren Zeilen, damit der neue Startpunkt bei der obersten Zeile beginnt
+                            _sendTextToFrame(clear: true); // Lösche den bestehenden Text auf dem Frame
                             _log.info('Startzeile geändert auf: $_startLine');
                           });
                         },
