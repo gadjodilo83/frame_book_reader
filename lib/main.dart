@@ -34,7 +34,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   bool _isTyping = false;
   double _typewriterSpeed = 0.03; // Sekunden pro Buchstabe
   int _currentCharIndex = 0;
-  final int _maxLinesOnScreen = 3; // Maximal 3 Zeilen auf dem Bildschirm
+  final int _maxLinesOnScreen = 4; // Maximal 4 Zeilen auf dem Bildschirm
   final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
 
   @override
