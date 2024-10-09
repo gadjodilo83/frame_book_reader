@@ -1,5 +1,5 @@
-name: frame_teleprompter
-description: "Simple teleprompter for Frame"
+name: frame_book_reader
+description: "frame book reader"
 publish_to: 'none'
 version: 0.1.0
 
