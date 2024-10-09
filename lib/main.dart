@@ -37,6 +37,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   final int _maxLinesOnScreen = 4; // Maximal 4 Zeilen auf dem Bildschirm
   final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
 
+  int _startLine = 0; // Startzeile für den Typewriter-Effekt
+
   @override
   Future<void> run() async {
     currentState = ApplicationState.running;
@@ -64,7 +66,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           _visibleLines.clear();
         });
 
-        _startTypewriterEffect();
       } else {
         currentState = ApplicationState.ready;
         if (mounted) setState(() {});
@@ -89,6 +90,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     if (_isTyping) return; // Verhindere mehrfaches Starten
     _isTyping = true;
     _log.info('Typewriter-Effekt gestartet.');
+    _currentLine = _startLine; // Setze die Startzeile für den Typewriter-Effekt
+    _currentCharIndex = 0; // Setze den Zeichenindex zurück, um von Anfang der neuen Startzeile zu beginnen
     _runTypewriterEffect();
   }
 
@@ -102,35 +105,34 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       String wrappedLine = _wrappedChunks[_currentLine];
       _log.info('Verarbeite Zeile $_currentLine: "$wrappedLine"');
 
-      for (; _currentCharIndex < wrappedLine.length; _currentCharIndex++) {
+      for (; _currentCharIndex < wrappedLine.length; _currentCharIndex += 2) {
         if (!_isTyping) break;
 
-        String char = wrappedLine[_currentCharIndex];
-        _addCharacterToVisibleText(char);
+        String charsToAdd = wrappedLine.substring(
+            _currentCharIndex,
+            (_currentCharIndex + 2 <= wrappedLine.length)
+                ? _currentCharIndex + 2
+                : wrappedLine.length);
 
-        // Sende nach jedem Zeichen
+        _addCharacterToVisibleText(charsToAdd);
+
         await _sendTextToFrame();
 
-        // Verzögerung basierend auf der Typewriter-Geschwindigkeit
-        await Future.delayed(Duration(
-            milliseconds: (_typewriterSpeed * 1000).toInt()));
+        await Future.delayed(Duration(milliseconds: (_typewriterSpeed * 1000).toInt()));
       }
 
       if (!_isTyping) break;
 
-      // Nach vollständiger Verarbeitung einer Zeile
       _currentCharIndex = 0;
       _currentLine++;
 
-      // Scrollen, wenn zu viele Zeilen vorhanden sind
       if (_visibleLines.length > _maxLinesOnScreen) {
         _visibleLines.removeAt(0);
         _log.info('Entferne oberste Zeile, um zu scrollen.');
       }
 
-      setState(() {}); // Update die UI
+      setState(() {});
 
-      // Kurze Pause zwischen den Zeilen
       await Future.delayed(Duration(milliseconds: 100));
     }
 
@@ -138,7 +140,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     _log.info('Typewriter-Effekt abgeschlossen.');
   }
 
-  // Optimierte Textumbruch-Funktion basierend auf Wortgrenzen
   List<String> _wrapTextToFit(String text, int maxCharsPerLine) {
     List<String> lines = [];
     List<String> words = text.split(RegExp(r'\s+')); // Splitte anhand von Leerzeichen
@@ -149,18 +150,15 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
       if (word.isEmpty) continue;
 
-      // Berechne die potenzielle Länge der aktuellen Zeile nach Hinzufügen des Wortes
       int prospectiveLength = currentLine.isEmpty ? word.length : currentLine.length + 1 + word.length;
 
       if (prospectiveLength <= maxCharsPerLine) {
-        // Füge das Wort zur aktuellen Zeile hinzu
         currentLine += (currentLine.isEmpty ? '' : ' ') + word;
       } else {
         if (currentLine.isNotEmpty) {
           lines.add(currentLine);
         }
 
-        // Wenn das Wort selbst länger ist als maxCharsPerLine, splitte es
         if (word.length > maxCharsPerLine) {
           int start = 0;
           while (start < word.length) {
@@ -170,13 +168,11 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           }
           currentLine = '';
         } else {
-          // Beginne eine neue Zeile mit dem aktuellen Wort
           currentLine = word;
         }
       }
     }
 
-    // Füge die letzte Zeile hinzu, falls vorhanden
     if (currentLine.isNotEmpty) {
       lines.add(currentLine);
     }
@@ -191,19 +187,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         return;
       }
 
-      // Verbinde die sichtbaren Zeilen und sende sie als Ganzes
       String fullText = _visibleLines.join('\n');
 
-      // Verhindere das Senden leerer Nachrichten
       if (fullText.trim().isEmpty) {
         _log.warning('Leere Nachricht wird nicht gesendet.');
         return;
       }
 
-      // Sende die aktuelle sichtbare Textmenge
       await frame!.sendMessage(TxPlainText(
         msgCode: 0x0a,
-        text: fullText, // Sende den gesamten sichtbaren Text
+        text: fullText,
       ));
       _log.info('Nachricht an Frame gesendet: "$fullText"');
     } catch (e) {
@@ -212,13 +205,11 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   }
 
   void _addCharacterToVisibleText(String char) {
-    // Füge ein neues Zeichen zur aktuellen Zeile hinzu
     if (_currentCharIndex == 0) {
       _visibleLines.add(char);
     } else {
       _visibleLines[_visibleLines.length - 1] += char;
     }
-    // Kein setState hier notwendig, da wir nur beim Senden aktualisieren
   }
 
   @override
@@ -243,13 +234,28 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const Spacer(),
-                Text(
-                  _visibleLines.isNotEmpty
-                      ? _visibleLines.join('\n')
-                      : 'Laden Sie eine Datei',
-                  style: const TextStyle(
-                    fontSize: 24,
-                    fontFamily: 'Courier', // Feste Schriftart für Konsistenz
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: _wrappedChunks.length,
+                    itemBuilder: (context, index) {
+                      return ListTile(
+                        title: Text(
+                          _wrappedChunks[index],
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontFamily: 'Courier',
+                          ),
+                        ),
+                        onTap: () {
+                          setState(() {
+                            _startLine = index;
+                            _currentLine = _startLine; // Setze aktuelle Zeile auf die neue Startzeile
+                            _currentCharIndex = 0; // Setze den Zeichenindex zurück
+                            _log.info('Startzeile geändert auf: $_startLine');
+                          });
+                        },
+                      );
+                    },
                   ),
                 ),
                 const Spacer(),
@@ -276,9 +282,9 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
             width: 200,
             child: Slider(
               value: _typewriterSpeed,
-              min: 0.03, // Angepasst auf 0.03 Sekunden als Minimalwert
+              min: 0.03,
               max: 0.2,
-              divisions: 17, // Angepasst basierend auf dem neuen Bereich
+              divisions: 17,
               label: '${_typewriterSpeed.toStringAsFixed(2)} s/Buchstabe',
               onChanged: (value) {
                 setState(() {
