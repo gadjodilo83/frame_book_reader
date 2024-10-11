@@ -24,7 +24,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
       debugPrint(
-          '${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
+          '\${record.level.name}: [\${record.loggerName}] \${record.time}: \${record.message}');
     });
   }
 
@@ -34,7 +34,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   bool _isTyping = false;
   double _typewriterSpeed = 0.03; // Sekunden pro Buchstabe
   int _currentCharIndex = 0;
-  final int _maxLinesOnScreen = 4; // Maximal 4 Zeilen auf dem Bildschirm
+  int _maxLinesOnScreen = 3; // Anzahl der angezeigten Zeilen auf dem Bildschirm (vom Benutzer anpassbar)
   final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
 
   int _startLine = 0; // Startzeile für den Typewriter-Effekt
@@ -65,7 +65,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           _currentCharIndex = 0;
           _visibleLines.clear();
         });
-
       } else {
         currentState = ApplicationState.ready;
         if (mounted) setState(() {});
@@ -106,7 +105,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   Future<void> _runTypewriterEffect() async {
     while (_isTyping && _currentLine < _wrappedChunks.length) {
       String wrappedLine = _wrappedChunks[_currentLine];
-      _log.info('Verarbeite Zeile $_currentLine: "$wrappedLine"');
+      _log.info('Verarbeite Zeile $_currentLine: "\$wrappedLine"');
 
       for (; _currentCharIndex < wrappedLine.length; _currentCharIndex += 2) {
         if (!_isTyping) break;
@@ -136,7 +135,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
       setState(() {});
 
-      await Future.delayed(Duration(milliseconds: 100));
+      await Future.delayed(Duration(milliseconds: 50));
     }
 
     _isTyping = false;
@@ -196,7 +195,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         msgCode: 0x0a,
         text: fullText,
       ));
-      _log.info('Nachricht an Frame gesendet: "${clear ? "Leeren Text gesendet" : fullText}"');
+      _log.info('Nachricht an Frame gesendet: "\${clear ? "Leeren Text gesendet" : fullText}"');
     } catch (e) {
       _log.warning('Fehler beim Senden der Nachricht an das Frame: $e');
     }
@@ -231,34 +230,45 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Spacer(),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: _wrappedChunks.length,
-                    itemBuilder: (context, index) {
-                      return ListTile(
-                        title: Text(
-                          _wrappedChunks[index],
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontFamily: 'Courier',
+                  child: Container(
+                    width: double.infinity,
+                    height: double.infinity,
+                    child: ListView.builder(
+                      itemCount: _wrappedChunks.length,
+                      itemBuilder: (context, index) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 0.5),
+                          child: SizedBox(
+                            height: 50,
+                            child: Center(
+                              child: ListTile(
+                                title: Text(
+                                  _wrappedChunks[index],
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    height: 1.0,
+                                    fontFamily: 'Courier',
+                                  ),
+                                ),
+                                onTap: () {
+                                  setState(() {
+                                    _startLine = index;
+                                    _currentLine = _startLine;
+                                    _currentCharIndex = 0;
+                                    _visibleLines.clear();
+                                    _sendTextToFrame(clear: true);
+                                    _log.info('Startzeile geändert auf: $_startLine');
+                                  });
+                                },
+                              ),
+                            ),
                           ),
-                        ),
-                        onTap: () {
-                          setState(() {
-                            _startLine = index;
-                            _currentLine = _startLine; // Setze aktuelle Zeile auf die neue Startzeile
-                            _currentCharIndex = 0; // Setze den Zeichenindex zurück
-                            _visibleLines.clear(); // Lösche die sichtbaren Zeilen, damit der neue Startpunkt bei der obersten Zeile beginnt
-                            _sendTextToFrame(clear: true); // Lösche den bestehenden Text auf dem Frame
-                            _log.info('Startzeile geändert auf: $_startLine');
-                          });
-                        },
-                      );
-                    },
+                        );
+                      },
+                    ),
                   ),
                 ),
-                const Spacer(),
               ],
             ),
           ),
@@ -280,18 +290,35 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           ),
           SizedBox(
             width: 200,
-            child: Slider(
-              value: _typewriterSpeed,
-              min: 0.03,
-              max: 0.2,
-              divisions: 17,
-              label: '${_typewriterSpeed.toStringAsFixed(2)} s/Buchstabe',
-              onChanged: (value) {
-                setState(() {
-                  _typewriterSpeed = value;
-                  _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
-                });
-              },
+            child: Column(
+              children: [
+                Slider(
+                  value: _typewriterSpeed,
+                  min: 0.03,
+                  max: 0.2,
+                  divisions: 10,
+                  label: '\Speed',
+                  onChanged: (value) {
+                    setState(() {
+                      _typewriterSpeed = value;
+                      _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
+                    });
+                  },
+                ),
+                Slider(
+                  value: _maxLinesOnScreen.toDouble(),
+                  min: 1,
+                  max: 5,
+                  divisions: 4,
+                  label: '\maxLinesOnScreen',
+                  onChanged: (value) {
+                    setState(() {
+                      _maxLinesOnScreen = value.toInt();
+                      _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
+                    });
+                  },
+                ),
+              ],
             ),
           ),
         ],
