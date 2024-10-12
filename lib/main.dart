@@ -216,7 +216,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       theme: ThemeData.dark(),
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Frame Book reader'),
+          title: const Text('Frame Book Reader'),
           actions: [getBatteryWidget()],
         ),
         body: GestureDetector(
