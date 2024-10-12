@@ -212,7 +212,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Frame Book reader',
+      title: 'Frame Book Reader',
       theme: ThemeData.dark(),
       home: Scaffold(
         appBar: AppBar(
@@ -241,27 +241,25 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                           padding: const EdgeInsets.symmetric(vertical: 0.5),
                           child: SizedBox(
                             height: 50,
-                            child: Center(
-                              child: ListTile(
-                                title: Text(
-                                  _wrappedChunks[index],
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    height: 1.0,
-                                    fontFamily: 'Courier',
-                                  ),
+                            child: ListTile(
+                              title: Text(
+                                _wrappedChunks[index],
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  height: 1.0,
+                                  fontFamily: 'Courier',
                                 ),
-                                onTap: () {
-                                  setState(() {
-                                    _startLine = index;
-                                    _currentLine = _startLine;
-                                    _currentCharIndex = 0;
-                                    _visibleLines.clear();
-                                    _sendTextToFrame(clear: true);
-                                    _log.info('Startzeile geändert auf: $_startLine');
-                                  });
-                                },
                               ),
+                              onTap: () {
+                                setState(() {
+                                  _startLine = index;
+                                  _currentLine = _startLine;
+                                  _currentCharIndex = 0;
+                                  _visibleLines.clear();
+                                  _sendTextToFrame(clear: true);
+                                  _log.info('Startzeile geändert auf: $_startLine');
+                                });
+                              },
                             ),
                           ),
                         );
