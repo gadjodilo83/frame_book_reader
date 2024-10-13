@@ -7,8 +7,7 @@ Play/Pause tap detection for typewriter on frame.
 
 
 ### Screenshot
-![Architecture](docs/Screenshot_1.jpg)
-
+![Architecture](ddocs/image0.jpg)
 
 ### Architecture
 ![Architecture](docs/Frame%20App%20Architecture%20-%20Teleprompter.svg)
