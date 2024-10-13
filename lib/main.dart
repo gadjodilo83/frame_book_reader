@@ -1,12 +1,13 @@
 import 'dart:async';
-import 'dart:io';
+import 'dart:io'; // Für File-Operationen
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:logging/logging.dart';
-
 import 'package:simple_frame_app/simple_frame_app.dart';
 import 'package:simple_frame_app/text_utils.dart';
 import 'package:simple_frame_app/tx/plain_text.dart';
+import 'package:simple_frame_app/tx/code.dart'; // Für TxCode hinzugefügt
+import 'package:simple_frame_app/tap_data_response.dart'; // Für Tap-Handling
 
 void main() => runApp(const MainApp());
 
@@ -20,24 +21,25 @@ class MainApp extends StatefulWidget {
 }
 
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
-  MainAppState() {
-    Logger.root.level = Level.INFO;
-    Logger.root.onRecord.listen((record) {
-      debugPrint(
-          '\${record.level.name}: [\${record.loggerName}] \${record.time}: \${record.message}');
-    });
-  }
-
+  StreamSubscription<int>? _tapSubs;
+  String? _message;
   final List<String> _wrappedChunks = []; // Liste für umgebrochene Zeilen
   List<String> _visibleLines = [];
   int _currentLine = 0;
   bool _isTyping = false;
   double _typewriterSpeed = 0.03; // Sekunden pro Buchstabe
   int _currentCharIndex = 0;
-  int _maxLinesOnScreen = 3; // Anzahl der angezeigten Zeilen auf dem Bildschirm (vom Benutzer anpassbar)
+  int _maxLinesOnScreen = 3; // Anzahl der angezeigten Zeilen auf dem Bildschirm (anpassbar)
   final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
 
   int _startLine = 0; // Startzeile für den Typewriter-Effekt
+
+  MainAppState() {
+    Logger.root.level = Level.INFO;
+    Logger.root.onRecord.listen((record) {
+      debugPrint('${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
+    });
+  }
 
   @override
   Future<void> run() async {
@@ -51,20 +53,43 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       );
 
       if (result != null) {
-        File file = File(result.files.single.path!);
+        File file = File(result.files.single.path!); // Verwendung von dart:io
 
         String content = await file.readAsString();
         _log.info('Dateiinhalt erfolgreich geladen.');
 
         _wrappedChunks.clear();
         setState(() {
-          // Ersetze Zeilenumbrüche durch Leerzeichen, um den gesamten Text als einen Absatz zu behandeln
+          // Ersetze Zeilenumbrüche durch Leerzeichen, um den Text als einen Absatz zu behandeln
           String singleParagraph = content.replaceAll('\n', ' ');
           _wrappedChunks.addAll(_wrapTextToFit(singleParagraph, _chunkSize));
           _currentLine = 0;
           _currentCharIndex = 0;
           _visibleLines.clear();
         });
+
+        // Frame abonnieren für Tap-Ereignisse
+        if (frame != null) {
+          _tapSubs?.cancel();
+          _tapSubs = tapDataResponse(frame!.dataResponse, const Duration(milliseconds: 300))
+              .listen((taps) {
+            _message = '$taps-tap detected';
+            _log.info(_message!);
+            setState(() {
+              if (_isTyping) {
+                _stopTypewriterEffect();
+              } else {
+                _startTypewriterEffect();
+              }
+            });
+          });
+
+          // Aktiviert Tap-Event-Abonnement auf dem Frame
+          await frame!.sendMessage(TxCode(msgCode: 0x10, value: 1));
+
+          // Prompt the user to begin tapping
+          await frame!.sendMessage(TxPlainText(msgCode: 0x12, text: 'Tap away!'));
+        }
       } else {
         currentState = ApplicationState.ready;
         if (mounted) setState(() {});
@@ -82,6 +107,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     _wrappedChunks.clear();
     _visibleLines.clear();
     _stopTypewriterEffect();
+    _tapSubs?.cancel(); // Stoppe das Abonnement für Tap-Ereignisse
+    await frame!.sendMessage(TxCode(msgCode: 0x10, value: 0)); // Tap-Abonnement deaktivieren
     if (mounted) setState(() {});
   }
 
@@ -89,23 +116,23 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     if (_isTyping) return; // Verhindere mehrfaches Starten
     _isTyping = true;
     _log.info('Typewriter-Effekt gestartet.');
-    _currentLine = _startLine; // Setze die Startzeile für den Typewriter-Effekt
-    _currentCharIndex = 0; // Setze den Zeichenindex zurück, um von Anfang der neuen Startzeile zu beginnen
-    _visibleLines.clear(); // Setze sichtbare Zeilen zurück, damit der neue Text wieder bei der obersten Zeile beginnt
-    _sendTextToFrame(clear: true); // Lösche den bestehenden Text auf dem Frame
+    _currentLine = _startLine; // Setze die Startzeile
+    _currentCharIndex = 0; // Setze den Zeichenindex zurück
+    _visibleLines.clear(); // Setze sichtbare Zeilen zurück
+    _sendTextToFrame(clear: true); // Lösche bestehenden Text auf dem Frame
     _runTypewriterEffect();
   }
 
   void _stopTypewriterEffect() {
     _isTyping = false;
     _log.info('Typewriter-Effekt gestoppt.');
-    _sendTextToFrame(clear: true); // Lösche den bestehenden Text auf dem Frame
+    _sendTextToFrame(clear: true); // Lösche bestehenden Text auf dem Frame
   }
 
   Future<void> _runTypewriterEffect() async {
     while (_isTyping && _currentLine < _wrappedChunks.length) {
       String wrappedLine = _wrappedChunks[_currentLine];
-      _log.info('Verarbeite Zeile $_currentLine: "\$wrappedLine"');
+      _log.info('Verarbeite Zeile $_currentLine: "$wrappedLine"');
 
       for (; _currentCharIndex < wrappedLine.length; _currentCharIndex += 2) {
         if (!_isTyping) break;
@@ -120,7 +147,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
         await _sendTextToFrame();
 
-        await Future.delayed(Duration(milliseconds: (_typewriterSpeed * 1000).toInt()));
+        await Future.delayed(
+            Duration(milliseconds: (_typewriterSpeed * 1000).toInt()));
       }
 
       if (!_isTyping) break;
@@ -152,7 +180,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
       if (word.isEmpty) continue;
 
-      int prospectiveLength = currentLine.isEmpty ? word.length : currentLine.length + 1 + word.length;
+      int prospectiveLength =
+          currentLine.isEmpty ? word.length : currentLine.length + 1 + word.length;
 
       if (prospectiveLength <= maxCharsPerLine) {
         currentLine += (currentLine.isEmpty ? '' : ' ') + word;
@@ -164,7 +193,9 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         if (word.length > maxCharsPerLine) {
           int start = 0;
           while (start < word.length) {
-            int end = (start + maxCharsPerLine) < word.length ? start + maxCharsPerLine : word.length;
+            int end = (start + maxCharsPerLine) < word.length
+                ? start + maxCharsPerLine
+                : word.length;
             lines.add(word.substring(start, end));
             start += maxCharsPerLine;
           }
@@ -192,10 +223,10 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       String fullText = clear ? "" : _visibleLines.join('\n');
 
       await frame!.sendMessage(TxPlainText(
-        msgCode: 0x0a,
+        msgCode: 0x12,
         text: fullText,
       ));
-      _log.info('Nachricht an Frame gesendet: "\${clear ? "Leeren Text gesendet" : fullText}"');
+      _log.info('Nachricht an Frame gesendet: "${clear ? "Leeren Text gesendet" : fullText}"');
     } catch (e) {
       _log.warning('Fehler beim Senden der Nachricht an das Frame: $e');
     }
@@ -221,8 +252,18 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         ),
         body: GestureDetector(
           behavior: HitTestBehavior.opaque,
+          onTap: () {
+            // Tap-Handling für Play/Pause-Funktion auf dem Android-Gerät
+            setState(() {
+              if (_isTyping) {
+                _stopTypewriterEffect();
+              } else {
+                _startTypewriterEffect();
+              }
+            });
+          },
           onVerticalDragEnd: (x) async {
-            // Scroll-Handling
+            // Scroll-Handling (falls benötigt)
           },
           child: Padding(
             padding: const EdgeInsets.all(8.0),
@@ -295,7 +336,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   min: 0.03,
                   max: 0.2,
                   divisions: 10,
-                  label: '\Speed',
+                  label: 'Geschwindigkeit',
                   onChanged: (value) {
                     setState(() {
                       _typewriterSpeed = value;
@@ -308,7 +349,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   min: 1,
                   max: 5,
                   divisions: 4,
-                  label: '\maxLinesOnScreen',
+                  label: 'Anzahl Zeilen',
                   onChanged: (value) {
                     setState(() {
                       _maxLinesOnScreen = value.toInt();
