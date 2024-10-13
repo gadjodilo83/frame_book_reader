@@ -7,7 +7,7 @@ import 'package:simple_frame_app/simple_frame_app.dart';
 import 'package:simple_frame_app/text_utils.dart';
 import 'package:simple_frame_app/tx/plain_text.dart';
 import 'package:simple_frame_app/tx/code.dart'; // Für TxCode hinzugefügt
-import 'package:simple_frame_app/tap_data_response.dart'; // Für Tap-Handling
+import 'tap_data_response.dart';
 
 void main() => runApp(const MainApp());
 
