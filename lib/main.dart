@@ -452,7 +452,7 @@ void _addCharacterToVisibleText(String char) {
                 Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: Text(
-                    'Aktuelle Zeile: $_currentLine',
+                    'Current Line: $_currentLine',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -486,7 +486,7 @@ void _addCharacterToVisibleText(String char) {
                   min: 0.03,
                   max: 0.2,
                   divisions: 10,
-                  label: 'Geschwindigkeit',
+                  label: 'Typewriter speed',
                   onChanged: (value) {
                     setState(() {
                       _typewriterSpeed = value;
@@ -499,7 +499,7 @@ void _addCharacterToVisibleText(String char) {
                   min: 1,
                   max: 5,
                   divisions: 4,
-                  label: 'Anzahl Zeilen',
+                  label: 'Number of rows',
                   onChanged: (value) {
                     setState(() {
                       _maxLinesOnScreen = value.toInt();
