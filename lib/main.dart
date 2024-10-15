@@ -359,9 +359,9 @@ void _addCharacterToVisibleText(String char) {
     if (_visibleLines.isNotEmpty) {
       _visibleLines[_visibleLines.length - 1] += char;
     } else {
-      // Falls `_visibleLines` leer ist, fügen wir das Zeichen als neue Zeile hinzu
+      // Falls _visibleLines leer ist, fügen wir das Zeichen als neue Zeile hinzu
       _visibleLines.add(char);
-      _log.warning('Warnung: `_visibleLines` war leer, neue Zeile hinzugefügt.');
+      _log.warning('Warnung: _visibleLines war leer, neue Zeile hinzugefügt.');
     }
   }
 }
@@ -369,24 +369,24 @@ void _addCharacterToVisibleText(String char) {
 
 void _scrollToCurrentLine() {
   if (_scrollController.hasClients) {
-    // Entfernen Sie die lokale Deklaration von `lineHeight`
-    // Verwenden Sie die Klassenvariable
-
-    // Gewünschte Position der aktuellen Zeile (z.B. am oberen Rand)
-    double desiredLinePositionFactor = 0.0;
-
+    double totalContentHeight = _wrappedChunks.length * lineHeight;
     double viewportHeight = MediaQuery.of(context).size.height
         - kToolbarHeight
         - MediaQuery.of(context).padding.top
         - MediaQuery.of(context).padding.bottom
         - footerButtonsHeight;
 
-    double targetOffset = (_currentLine * lineHeight) - (viewportHeight * desiredLinePositionFactor);
+    double maxScrollOffset = totalContentHeight - viewportHeight;
+    if (maxScrollOffset < 0) maxScrollOffset = 0;
+
+    double targetOffset = _currentLine * lineHeight;
+
+    // Stellen Sie sicher, dass der Offset innerhalb der Scrollgrenzen liegt
+    if (targetOffset > maxScrollOffset) {
+      targetOffset = maxScrollOffset;
+    }
 
     if (targetOffset < 0) targetOffset = 0;
-    if (targetOffset > _scrollController.position.maxScrollExtent) {
-      targetOffset = _scrollController.position.maxScrollExtent;
-    }
 
     _scrollController.animateTo(
       targetOffset,
@@ -404,150 +404,149 @@ void _scrollToCurrentLine() {
 
 
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Frame Book Reader',
-      theme: ThemeData.dark(),
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Frame Book Reader'),
-          actions: [getBatteryWidget()],
-        ),
-        body: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () {
-            // Tap-Handling für Play/Pause-Funktion auf dem Android-Gerät
-            setState(() {
-              if (_isTyping) {
-                _stopTypewriterEffect();
-              } else {
-                _startTypewriterEffect();
-              }
-            });
-          },
-          child: Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Column(
-              children: [
-                Expanded(
-                  child: Container(
-                    width: double.infinity,
-                    height: double.infinity,
-                    child: ListView.builder(
-                      controller: _scrollController, // ScrollController hinzufügen
-                      itemCount: _wrappedChunks.length,
-                      itemBuilder: (context, index) {
-                        bool isCurrentLine = index == _currentLine;
 
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 0.5),
-                          child: SizedBox(
-                            height: 50,
-                            child: ListTile(
-                              title: Text(
-                                _wrappedChunks[index],
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  height: 1.0,
-                                  fontFamily: 'Courier',
-                                  fontWeight: isCurrentLine
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  color: isCurrentLine
-                                      ? Colors.blue
-                                      : Colors.white,
-                                ),
-                              ),
-                              tileColor: isCurrentLine ? Colors.grey[800] : null,
-                              onTap: () {
-                                setState(() {
-                                  _startLine = index;
-                                  _currentLine = _startLine;
-                                  _currentCharIndex = 0;
-                                  _visibleLines.clear();
-                                  _sendTextToFrame(clear: true);
-                                  _log.info('Startzeile geändert auf: $_startLine');
-                                });
-                              },
-                            ),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text(
-                    'Current Line: $_currentLine',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        floatingActionButton: getFloatingActionButtonWidget(
-          const Icon(Icons.file_open),
-          const Icon(Icons.close),
-        ),
-        persistentFooterButtons: [
-          Container(
-            key: _footerKey, // Fügen Sie das GlobalKey hier hinzu
-            child: Row(
-              children: [
-                ...getFooterButtonsWidget(),
-                IconButton(
-                  icon: Icon(_isTyping ? Icons.pause : Icons.play_arrow),
-                  onPressed: () {
-                    if (_isTyping) {
-                      _stopTypewriterEffect();
-                    } else {
-                      _startTypewriterEffect();
-                    }
-                    if (mounted) setState(() {});
-                  },
-                ),
-                SizedBox(
-				  height: lineHeight, // Verwenden Sie die gleiche Variable
-                  width: 200,
-                  child: Column(
-                    children: [
-                      Slider(
-                        value: _typewriterSpeed,
-                        min: 0.03,
-                        max: 0.2,
-                        divisions: 10,
-                        label: 'Geschwindigkeit',
-                        onChanged: (value) {
+
+
+@override
+Widget build(BuildContext context) {
+  return MaterialApp(
+    title: 'Frame Book Reader',
+    theme: ThemeData.dark(),
+    home: Scaffold(
+      appBar: AppBar(
+        title: const Text('Frame Book Reader'),
+        actions: [getBatteryWidget()],
+      ),
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          // Tap-Handling für Play/Pause-Funktion auf dem Android-Gerät
+          setState(() {
+            if (_isTyping) {
+              _stopTypewriterEffect();
+            } else {
+              _startTypewriterEffect();
+            }
+          });
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController, // ScrollController hinzufügen
+                  itemCount: _wrappedChunks.length,
+                  itemBuilder: (context, index) {
+                    bool isCurrentLine = index == _currentLine;
+
+                    return SizedBox(
+                      height: lineHeight, // Verwenden Sie die Klassenvariable
+                      child: InkWell(
+                        onTap: () {
                           setState(() {
-                            _typewriterSpeed = value;
-                            _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
-                          });
-                        }q,
-                      ),
-                      Slider(
-                        value: _maxLinesOnScreen.toDouble(),
-                        min: 1,
-                        max: 5,
-                        divisions: 4,
-                        label: 'Anzahl der Zeilen',
-                        onChanged: (value) {
-                          setState(() {
-                            _maxLinesOnScreen = value.toInt();
-                            _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
+                            _startLine = index;
+                            _currentLine = _startLine;
+                            _currentCharIndex = 0;
+                            _visibleLines.clear();
+                            _sendTextToFrame(clear: true);
+                            _log.info('Startzeile geändert auf: $_startLine');
                           });
                         },
+                        child: Container(
+                          color: isCurrentLine ? Colors.grey[800] : null,
+                          alignment: Alignment.centerLeft,
+                          padding: EdgeInsets.symmetric(horizontal: 8.0), // Optionales Padding
+                          child: Text(
+                            _wrappedChunks[index],
+                            style: TextStyle(
+                              fontSize: 16,
+                              height: 1.0,
+                              fontFamily: 'Courier',
+                              fontWeight: isCurrentLine
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                              color: isCurrentLine
+                                  ? Colors.blue
+                                  : Colors.white,
+                            ),
+                          ),
+                        ),
                       ),
-                    ],
-                  ),
+                    );
+                  },
                 ),
-              ],
-            ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  'Current Line: $_currentLine',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
-    );
-  }
-} 
+      floatingActionButton: getFloatingActionButtonWidget(
+        const Icon(Icons.file_open),
+        const Icon(Icons.close),
+      ),
+      persistentFooterButtons: [
+        Container(
+          key: _footerKey, // Fügen Sie das GlobalKey hier hinzu
+          child: Row(
+            children: [
+              ...getFooterButtonsWidget(),
+              IconButton(
+                icon: Icon(_isTyping ? Icons.pause : Icons.play_arrow),
+                onPressed: () {
+                  if (_isTyping) {
+                    _stopTypewriterEffect();
+                  } else {
+                    _startTypewriterEffect();
+                  }
+                  if (mounted) setState(() {});
+                },
+              ),
+              SizedBox(
+                width: 200,
+                child: Column(
+                  children: [
+                    Slider(
+                      value: _typewriterSpeed,
+                      min: 0.03,
+                      max: 0.2,
+                      divisions: 10,
+                      label: 'Typewriter Speed',
+                      onChanged: (value) {
+                        setState(() {
+                          _typewriterSpeed = value;
+                          _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
+                        });
+                      },
+                    ),
+                    Slider(
+                      value: _maxLinesOnScreen.toDouble(),
+                      min: 1,
+                      max: 5,
+                      divisions: 4,
+                      label: 'MaxLinesOnScreen',
+                      onChanged: (value) {
+                        setState(() {
+                          _maxLinesOnScreen = value.toInt();
+                          _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+}
