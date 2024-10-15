@@ -20,6 +20,8 @@ class MainApp extends StatefulWidget {
   State<MainApp> createState() => MainAppState();
 }
 
+
+
 class MainAppState extends State<MainApp> with SimpleFrameAppState {
   StreamSubscription<int>? _tapSubs;
   String? _message;
@@ -32,7 +34,19 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _maxLinesOnScreen = 3; // Anzahl der angezeigten Zeilen auf dem Bildschirm (anpassbar)
   final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
   ScrollController _scrollController = ScrollController();
+  final GlobalKey _footerKey = GlobalKey();
+  double lineHeight = 50.0; // Höhe jeder Zeile (anpassbar)
 
+
+  double get footerButtonsHeight {
+    final RenderBox? renderBox = _footerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox != null) {
+      return renderBox.size.height;
+    } else {
+      // Standardhöhe verwenden, wenn die Messung noch nicht verfügbar ist
+      return 50.0;
+    }
+  }
 
   int _startLine = 0; // Startzeile für den Typewriter-Effekt
 
@@ -46,7 +60,6 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           '${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
     });
   }
-
 
 @override
 void initState() {
@@ -354,24 +367,39 @@ void _addCharacterToVisibleText(String char) {
 }
 
 
-  void _scrollToCurrentLine() {
-    if (_scrollController.hasClients) {
-      // Berechnen Sie die Scrollposition so, dass die aktuelle Zeile in der Mitte des Bildschirms angezeigt wird
-      double offset = (_currentLine * 50.0) - (MediaQuery.of(context).size.height / 2) + 25.0;
+void _scrollToCurrentLine() {
+  if (_scrollController.hasClients) {
+    // Entfernen Sie die lokale Deklaration von `lineHeight`
+    // Verwenden Sie die Klassenvariable
 
-      // Stellen Sie sicher, dass der Offset innerhalb der Scrollgrenzen liegt
-      if (offset < 0) offset = 0;
-      if (offset > _scrollController.position.maxScrollExtent) {
-        offset = _scrollController.position.maxScrollExtent;
-      }
+    // Gewünschte Position der aktuellen Zeile (z.B. am oberen Rand)
+    double desiredLinePositionFactor = 0.0;
 
-      _scrollController.animateTo(
-        offset,
-        duration: Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+    double viewportHeight = MediaQuery.of(context).size.height
+        - kToolbarHeight
+        - MediaQuery.of(context).padding.top
+        - MediaQuery.of(context).padding.bottom
+        - footerButtonsHeight;
+
+    double targetOffset = (_currentLine * lineHeight) - (viewportHeight * desiredLinePositionFactor);
+
+    if (targetOffset < 0) targetOffset = 0;
+    if (targetOffset > _scrollController.position.maxScrollExtent) {
+      targetOffset = _scrollController.position.maxScrollExtent;
     }
+
+    _scrollController.animateTo(
+      targetOffset,
+      duration: Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
   }
+}
+
+
+
+
+
 
 
 
@@ -465,47 +493,55 @@ void _addCharacterToVisibleText(String char) {
           const Icon(Icons.close),
         ),
         persistentFooterButtons: [
-          ...getFooterButtonsWidget(),
-          IconButton(
-            icon: Icon(_isTyping ? Icons.pause : Icons.play_arrow),
-            onPressed: () {
-              if (_isTyping) {
-                _stopTypewriterEffect();
-              } else {
-                _startTypewriterEffect();
-              }
-              if (mounted) setState(() {});
-            },
-          ),
-          SizedBox(
-            width: 200,
-            child: Column(
+          Container(
+            key: _footerKey, // Fügen Sie das GlobalKey hier hinzu
+            child: Row(
               children: [
-                Slider(
-                  value: _typewriterSpeed,
-                  min: 0.03,
-                  max: 0.2,
-                  divisions: 10,
-                  label: 'Typewriter speed',
-                  onChanged: (value) {
-                    setState(() {
-                      _typewriterSpeed = value;
-                      _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
-                    });
+                ...getFooterButtonsWidget(),
+                IconButton(
+                  icon: Icon(_isTyping ? Icons.pause : Icons.play_arrow),
+                  onPressed: () {
+                    if (_isTyping) {
+                      _stopTypewriterEffect();
+                    } else {
+                      _startTypewriterEffect();
+                    }
+                    if (mounted) setState(() {});
                   },
                 ),
-                Slider(
-                  value: _maxLinesOnScreen.toDouble(),
-                  min: 1,
-                  max: 5,
-                  divisions: 4,
-                  label: 'Number of rows',
-                  onChanged: (value) {
-                    setState(() {
-                      _maxLinesOnScreen = value.toInt();
-                      _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
-                    });
-                  },
+                SizedBox(
+				  height: lineHeight, // Verwenden Sie die gleiche Variable
+                  width: 200,
+                  child: Column(
+                    children: [
+                      Slider(
+                        value: _typewriterSpeed,
+                        min: 0.03,
+                        max: 0.2,
+                        divisions: 10,
+                        label: 'Geschwindigkeit',
+                        onChanged: (value) {
+                          setState(() {
+                            _typewriterSpeed = value;
+                            _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
+                          });
+                        }q,
+                      ),
+                      Slider(
+                        value: _maxLinesOnScreen.toDouble(),
+                        min: 1,
+                        max: 5,
+                        divisions: 4,
+                        label: 'Anzahl der Zeilen',
+                        onChanged: (value) {
+                          setState(() {
+                            _maxLinesOnScreen = value.toInt();
+                            _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
+                          });
+                        },
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -514,4 +550,4 @@ void _addCharacterToVisibleText(String char) {
       ),
     );
   }
-}
+} 
