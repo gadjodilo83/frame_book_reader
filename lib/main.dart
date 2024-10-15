@@ -34,10 +34,14 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
   int _startLine = 0; // Startzeile für den Typewriter-Effekt
 
+  Timer? _keepAliveTimer;
+  Timer? _tapEnableTimer;
+
   MainAppState() {
     Logger.root.level = Level.INFO;
     Logger.root.onRecord.listen((record) {
-      debugPrint('${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
+      debugPrint(
+          '${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
     });
   }
 
@@ -71,24 +75,39 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         // Frame abonnieren für Tap-Ereignisse
         if (frame != null) {
           _tapSubs?.cancel();
-          _tapSubs = tapDataResponse(frame!.dataResponse, const Duration(milliseconds: 300))
-              .listen((taps) {
-            _message = '$taps-tap detected';
-            _log.info(_message!);
-            setState(() {
-              if (_isTyping) {
-                _stopTypewriterEffect();
-              } else {
-                _startTypewriterEffect();
-              }
-            });
-          });
+          _tapSubs = tapDataResponse(
+            frame!.dataResponse,
+            const Duration(milliseconds: 300),
+          ).listen(
+            (taps) {
+              _message = '$taps-tap detected';
+              _log.info(_message!);
+              setState(() {
+                if (_isTyping) {
+                  _stopTypewriterEffect();
+                } else {
+                  _startTypewriterEffect();
+                }
+              });
+            },
+            onError: (error) {
+              _log.warning('Tap subscription error: $error');
+            },
+            onDone: () {
+              _log.warning('Tap subscription closed.');
+            },
+          );
 
           // Aktiviert Tap-Event-Abonnement auf dem Frame
           await frame!.sendMessage(TxCode(msgCode: 0x10, value: 1));
 
+          // Starten Sie die Keep-Alive- und Tap-Enable-Timer
+          _startKeepAlive();
+          _startTapEnableTimer();
+
           // Prompt the user to begin tapping
-          await frame!.sendMessage(TxPlainText(msgCode: 0x12, text: 'Tap away!'));
+          await frame!
+              .sendMessage(TxPlainText(msgCode: 0x12, text: 'Tap away!'));
         }
       } else {
         currentState = ApplicationState.ready;
@@ -108,25 +127,67 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     _visibleLines.clear();
     _stopTypewriterEffect();
     _tapSubs?.cancel(); // Stoppe das Abonnement für Tap-Ereignisse
-    await frame!.sendMessage(TxCode(msgCode: 0x10, value: 0)); // Tap-Abonnement deaktivieren
+
+    // Stoppen Sie die Keep-Alive- und Tap-Enable-Timer
+    _stopKeepAlive();
+    _stopTapEnableTimer();
+
+    if (frame != null) {
+      await frame!.sendMessage(
+          TxCode(msgCode: 0x10, value: 0)); // Tap-Abonnement deaktivieren
+    }
     if (mounted) setState(() {});
+  }
+
+  void _startKeepAlive() {
+    _keepAliveTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+      if (frame != null) {
+        try {
+          await frame!
+              .sendMessage(TxCode(msgCode: 0x11, value: 0)); // Keep-Alive-Nachricht
+          _log.info('Keep-Alive-Nachricht an Frame gesendet.');
+        } catch (e) {
+          _log.warning('Fehler beim Senden der Keep-Alive-Nachricht: $e');
+        }
+      }
+    });
+  }
+
+  void _stopKeepAlive() {
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = null;
+  }
+
+  void _startTapEnableTimer() {
+    _tapEnableTimer = Timer.periodic(Duration(minutes: 1), (timer) async {
+      if (frame != null) {
+        try {
+          await frame!
+              .sendMessage(TxCode(msgCode: 0x10, value: 1)); // Tap-Ereignisse aktivieren
+          _log.info('Tap-Ereignisse auf Frame reaktiviert.');
+        } catch (e) {
+          _log.warning('Fehler beim Reaktivieren der Tap-Ereignisse: $e');
+        }
+      }
+    });
+  }
+
+  void _stopTapEnableTimer() {
+    _tapEnableTimer?.cancel();
+    _tapEnableTimer = null;
   }
 
   void _startTypewriterEffect() {
     if (_isTyping) return; // Verhindere mehrfaches Starten
     _isTyping = true;
     _log.info('Typewriter-Effekt gestartet.');
-    _currentLine = _startLine; // Setze die Startzeile
-    _currentCharIndex = 0; // Setze den Zeichenindex zurück
-    _visibleLines.clear(); // Setze sichtbare Zeilen zurück
-    _sendTextToFrame(clear: true); // Lösche bestehenden Text auf dem Frame
+
     _runTypewriterEffect();
   }
 
   void _stopTypewriterEffect() {
     _isTyping = false;
     _log.info('Typewriter-Effekt gestoppt.');
-    _sendTextToFrame(clear: true); // Lösche bestehenden Text auf dem Frame
   }
 
   Future<void> _runTypewriterEffect() async {
@@ -172,7 +233,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
   List<String> _wrapTextToFit(String text, int maxCharsPerLine) {
     List<String> lines = [];
-    List<String> words = text.split(RegExp(r'\s+')); // Splitte anhand von Leerzeichen
+    List<String> words =
+        text.split(RegExp(r'\s+')); // Splitte anhand von Leerzeichen
     String currentLine = '';
 
     for (String word in words) {
@@ -226,7 +288,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         msgCode: 0x12,
         text: fullText,
       ));
-      _log.info('Nachricht an Frame gesendet: "${clear ? "Leeren Text gesendet" : fullText}"');
+      _log.info(
+          'Nachricht an Frame gesendet: "${clear ? "Leeren Text gesendet" : fullText}"');
     } catch (e) {
       _log.warning('Fehler beim Senden der Nachricht an das Frame: $e');
     }
@@ -278,6 +341,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                     child: ListView.builder(
                       itemCount: _wrappedChunks.length,
                       itemBuilder: (context, index) {
+                        bool isCurrentLine = index == _currentLine;
+
                         return Padding(
                           padding: const EdgeInsets.symmetric(vertical: 0.5),
                           child: SizedBox(
@@ -285,12 +350,20 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                             child: ListTile(
                               title: Text(
                                 _wrappedChunks[index],
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 16,
                                   height: 1.0,
                                   fontFamily: 'Courier',
+                                  fontWeight: isCurrentLine
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isCurrentLine
+                                      ? Colors.blue
+                                      : Colors.white,
                                 ),
                               ),
+                              tileColor:
+                                  isCurrentLine ? Colors.grey[800] : null,
                               onTap: () {
                                 setState(() {
                                   _startLine = index;
@@ -298,7 +371,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                                   _currentCharIndex = 0;
                                   _visibleLines.clear();
                                   _sendTextToFrame(clear: true);
-                                  _log.info('Startzeile geändert auf: $_startLine');
+                                  _log.info(
+                                      'Startzeile geändert auf: $_startLine');
                                 });
                               },
                             ),
@@ -306,6 +380,14 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                         );
                       },
                     ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: Text(
+                    'Aktuelle Zeile: $_currentLine',
+                    style:
+                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -340,7 +422,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   onChanged: (value) {
                     setState(() {
                       _typewriterSpeed = value;
-                      _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
+                      _log.info(
+                          'Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
                     });
                   },
                 ),
@@ -353,7 +436,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   onChanged: (value) {
                     setState(() {
                       _maxLinesOnScreen = value.toInt();
-                      _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
+                      _log.info(
+                          'Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
                     });
                   },
                 ),
