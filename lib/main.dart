@@ -31,6 +31,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   int _currentCharIndex = 0;
   int _maxLinesOnScreen = 3; // Anzahl der angezeigten Zeilen auf dem Bildschirm (anpassbar)
   final int _chunkSize = 32; // Maximale Zeichenanzahl pro Zeile
+  ScrollController _scrollController = ScrollController();
+
 
   int _startLine = 0; // Startzeile für den Typewriter-Effekt
 
@@ -44,6 +46,21 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           '${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
     });
   }
+
+
+@override
+void initState() {
+  super.initState();
+  _scrollController = ScrollController();
+}
+
+@override
+void dispose() {
+  _scrollController.dispose();
+  super.dispose();
+}
+
+
 
   @override
   Future<void> run() async {
@@ -177,13 +194,24 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     _tapEnableTimer = null;
   }
 
-  void _startTypewriterEffect() {
-    if (_isTyping) return; // Verhindere mehrfaches Starten
-    _isTyping = true;
-    _log.info('Typewriter-Effekt gestartet.');
+void _startTypewriterEffect() {
+  if (_isTyping) return; // Verhindere mehrfaches Starten
 
-    _runTypewriterEffect();
+  // Überprüfen, ob das Ende des Textes erreicht wurde
+  if (_currentLine >= _wrappedChunks.length) {
+    _currentLine = 0;
+    _currentCharIndex = 0;
+    _visibleLines.clear();
+    _sendTextToFrame(clear: true);
+    _log.info('Typewriter-Effekt von vorne gestartet.');
   }
+
+  _isTyping = true;
+  _log.info('Typewriter-Effekt gestartet.');
+
+  _runTypewriterEffect();
+}
+
 
   void _stopTypewriterEffect() {
     _isTyping = false;
@@ -199,37 +227,53 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
         if (!_isTyping) break;
 
         String charsToAdd = wrappedLine.substring(
-            _currentCharIndex,
-            (_currentCharIndex + 2 <= wrappedLine.length)
-                ? _currentCharIndex + 2
-                : wrappedLine.length);
+          _currentCharIndex,
+          (_currentCharIndex + 2 <= wrappedLine.length)
+            ? _currentCharIndex + 2
+            : wrappedLine.length,
+        );
 
         _addCharacterToVisibleText(charsToAdd);
 
         await _sendTextToFrame();
 
         await Future.delayed(
-            Duration(milliseconds: (_typewriterSpeed * 1000).toInt()));
+          Duration(milliseconds: (_typewriterSpeed * 1000).toInt()),
+        );
       }
 
-      if (!_isTyping) break;
+		if (!_isTyping) break;
 
-      _currentCharIndex = 0;
-      _currentLine++;
+		_currentCharIndex = 0;
+		_currentLine++;
 
-      if (_visibleLines.length > _maxLinesOnScreen) {
-        _visibleLines.removeAt(0);
-        _log.info('Entferne oberste Zeile, um zu scrollen.');
-      }
+		if (_visibleLines.length > _maxLinesOnScreen) {
+		  _visibleLines.removeAt(0);
+		  _log.info('Entferne oberste Zeile, um zu scrollen.');
+		}
 
-      setState(() {});
+		setState(() {});
 
-      await Future.delayed(Duration(milliseconds: 50));
-    }
+		// Scrollen Sie zum aktuellen Eintrag
+		_scrollToCurrentLine();
 
-    _isTyping = false;
-    _log.info('Typewriter-Effekt abgeschlossen.');
-  }
+		await Future.delayed(Duration(milliseconds: 50));
+	  }
+
+	  _isTyping = false;
+	  _log.info('Typewriter-Effekt abgeschlossen.');
+
+	  // Überprüfen, ob das Ende des Textes erreicht wurde
+	  if (_currentLine >= _wrappedChunks.length) {
+		_currentLine = 0;
+		_currentCharIndex = 0;
+		_visibleLines.clear();
+		_sendTextToFrame(clear: true);
+		_log.info('Typewriter-Effekt hat das Ende des Textes erreicht und wurde zurückgesetzt.');
+	  }
+	}
+
+
 
   List<String> _wrapTextToFit(String text, int maxCharsPerLine) {
     List<String> lines = [];
@@ -295,13 +339,42 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     }
   }
 
-  void _addCharacterToVisibleText(String char) {
-    if (_currentCharIndex == 0) {
-      _visibleLines.add(char);
-    } else {
+void _addCharacterToVisibleText(String char) {
+  if (_currentCharIndex == 0) {
+    _visibleLines.add(char);
+  } else {
+    if (_visibleLines.isNotEmpty) {
       _visibleLines[_visibleLines.length - 1] += char;
+    } else {
+      // Falls `_visibleLines` leer ist, fügen wir das Zeichen als neue Zeile hinzu
+      _visibleLines.add(char);
+      _log.warning('Warnung: `_visibleLines` war leer, neue Zeile hinzugefügt.');
     }
   }
+}
+
+
+  void _scrollToCurrentLine() {
+    if (_scrollController.hasClients) {
+      // Berechnen Sie die Scrollposition so, dass die aktuelle Zeile in der Mitte des Bildschirms angezeigt wird
+      double offset = (_currentLine * 50.0) - (MediaQuery.of(context).size.height / 2) + 25.0;
+
+      // Stellen Sie sicher, dass der Offset innerhalb der Scrollgrenzen liegt
+      if (offset < 0) offset = 0;
+      if (offset > _scrollController.position.maxScrollExtent) {
+        offset = _scrollController.position.maxScrollExtent;
+      }
+
+      _scrollController.animateTo(
+        offset,
+        duration: Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -325,20 +398,16 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
               }
             });
           },
-          onVerticalDragEnd: (x) async {
-            // Scroll-Handling (falls benötigt)
-          },
           child: Padding(
             padding: const EdgeInsets.all(8.0),
             child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Expanded(
                   child: Container(
                     width: double.infinity,
                     height: double.infinity,
                     child: ListView.builder(
+                      controller: _scrollController, // ScrollController hinzufügen
                       itemCount: _wrappedChunks.length,
                       itemBuilder: (context, index) {
                         bool isCurrentLine = index == _currentLine;
@@ -362,8 +431,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                                       : Colors.white,
                                 ),
                               ),
-                              tileColor:
-                                  isCurrentLine ? Colors.grey[800] : null,
+                              tileColor: isCurrentLine ? Colors.grey[800] : null,
                               onTap: () {
                                 setState(() {
                                   _startLine = index;
@@ -371,8 +439,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                                   _currentCharIndex = 0;
                                   _visibleLines.clear();
                                   _sendTextToFrame(clear: true);
-                                  _log.info(
-                                      'Startzeile geändert auf: $_startLine');
+                                  _log.info('Startzeile geändert auf: $_startLine');
                                 });
                               },
                             ),
@@ -386,8 +453,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   padding: const EdgeInsets.all(8.0),
                   child: Text(
                     'Aktuelle Zeile: $_currentLine',
-                    style:
-                        TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -395,7 +461,9 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           ),
         ),
         floatingActionButton: getFloatingActionButtonWidget(
-            const Icon(Icons.file_open), const Icon(Icons.close)),
+          const Icon(Icons.file_open),
+          const Icon(Icons.close),
+        ),
         persistentFooterButtons: [
           ...getFooterButtonsWidget(),
           IconButton(
@@ -422,8 +490,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   onChanged: (value) {
                     setState(() {
                       _typewriterSpeed = value;
-                      _log.info(
-                          'Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
+                      _log.info('Typewriter-Geschwindigkeit geändert auf: $value s/Buchstabe');
                     });
                   },
                 ),
@@ -436,8 +503,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                   onChanged: (value) {
                     setState(() {
                       _maxLinesOnScreen = value.toInt();
-                      _log.info(
-                          'Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
+                      _log.info('Anzahl der anzuzeigenden Zeilen geändert auf: $_maxLinesOnScreen');
                     });
                   },
                 ),
