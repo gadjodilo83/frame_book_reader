@@ -169,38 +169,40 @@ void dispose() {
     if (mounted) setState(() {});
   }
 
-  void _startKeepAlive() {
-    _keepAliveTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
-      if (frame != null) {
-        try {
-          await frame!
-              .sendMessage(TxCode(msgCode: 0x11, value: 0)); // Keep-Alive-Nachricht
-          _log.info('Keep-Alive-Nachricht an Frame gesendet.');
-        } catch (e) {
-          _log.warning('Fehler beim Senden der Keep-Alive-Nachricht: $e');
-        }
-      }
-    });
-  }
+void _startKeepAlive() {
+  // _keepAliveTimer?.cancel(); // Vorhandenen Timer stoppen
+  // _keepAliveTimer = Timer.periodic(Duration(seconds: 30), (timer) async {
+  //   if (frame != null) {
+  //     try {
+  //       await frame!.sendMessage(TxCode(msgCode: 0x11, value: 0)); // Keep-Alive-Nachricht
+  //       _log.info('Keep-Alive-Nachricht an Frame gesendet.');
+  //     } catch (e) {
+  //       _log.warning('Fehler beim Senden der Keep-Alive-Nachricht: $e');
+  //     }
+  //   }
+  // });
+}
+
 
   void _stopKeepAlive() {
     _keepAliveTimer?.cancel();
     _keepAliveTimer = null;
   }
 
-  void _startTapEnableTimer() {
-    _tapEnableTimer = Timer.periodic(Duration(minutes: 1), (timer) async {
-      if (frame != null) {
-        try {
-          await frame!
-              .sendMessage(TxCode(msgCode: 0x10, value: 1)); // Tap-Ereignisse aktivieren
-          _log.info('Tap-Ereignisse auf Frame reaktiviert.');
-        } catch (e) {
-          _log.warning('Fehler beim Reaktivieren der Tap-Ereignisse: $e');
-        }
+void _startTapEnableTimer() {
+  _tapEnableTimer?.cancel(); // Vorhandenen Timer stoppen
+  _tapEnableTimer = Timer.periodic(Duration(minutes: 1), (timer) async {
+    if (frame != null) {
+      try {
+        await frame!.sendMessage(TxCode(msgCode: 0x10, value: 1)); // Tap-Ereignisse aktivieren
+        _log.info('Tap-Ereignisse auf Frame reaktiviert.');
+      } catch (e) {
+        _log.warning('Fehler beim Reaktivieren der Tap-Ereignisse: $e');
       }
-    });
-  }
+    }
+  });
+}
+
 
   void _stopTapEnableTimer() {
     _tapEnableTimer?.cancel();
