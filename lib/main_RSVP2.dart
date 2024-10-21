@@ -26,9 +26,9 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   List<String> _words = []; // Liste für die Wörter
   int _currentWordIndex = 0;
   bool _isPlaying = false;
-  double _wpm = 600.0; // Initiale Wörter pro Minute
-  double _punctuationMultiplier = 2.0; // Initialer Multiplikator für Satzzeichen
-  double _shortWordMultiplier = 0.75; // Initialer Multiplikator für kurze Wörter
+  double _wpm = 400.0; // Initiale Wörter pro Minute (maximal)
+  double _punctuationMultiplier = 1.0; // Initialer Multiplikator für Satzzeichen
+  double _shortWordMultiplier = 1.0; // Initialer Multiplikator für kurze Wörter
   Timer? _wordTimer;
 
   Timer? _keepAliveTimer; // Hinzugefügt
@@ -50,8 +50,12 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
 
   int _startWordIndex = 0; // Startwort für RSVP
 
+  // Debounce variables
+  DateTime _lastTapTime = DateTime.now().subtract(Duration(seconds: 1));
+  final Duration _tapDebounceDuration = Duration(milliseconds: 300);
+
   MainAppState() {
-    Logger.root.level = Level.INFO;
+    Logger.root.level = Level.FINE; // Set to FINE for more detailed logs
     Logger.root.onRecord.listen((record) {
       debugPrint(
           '${record.level.name}: [${record.loggerName}] ${record.time}: ${record.message}');
@@ -103,15 +107,21 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
             const Duration(milliseconds: 300),
           ).listen(
             (taps) {
-              _message = '$taps-tap detected';
-              _log.info(_message!);
-              setState(() {
-                if (_isPlaying) {
-                  _pauseRSVP();
-                } else {
-                  _startRSVP();
-                }
-              });
+              final now = DateTime.now();
+              if (now.difference(_lastTapTime) > _tapDebounceDuration) {
+                _lastTapTime = now;
+                _message = '$taps-tap detected';
+                _log.info(_message!);
+                setState(() {
+                  if (_isPlaying) {
+                    _pauseRSVP();
+                  } else {
+                    _startRSVP();
+                  }
+                });
+              } else {
+                _log.fine('Tap ignored due to debounce');
+              }
             },
             onError: (error) {
               _log.warning('Tap subscription error: $error');
@@ -128,6 +138,8 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
           await frame!
               .sendMessage(TxPlainText(msgCode: 0x12, text: 'Tap away!'));
         }
+
+
       } else {
         currentState = ApplicationState.ready;
         if (mounted) setState(() {});
@@ -198,7 +210,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
   List<String> _splitTextIntoWords(String text) {
     // Teilt den Text in Wörter und behält die Punctuation am Ende bei
     // Angepasste RegExp zur besseren Worttrennung inklusive deutscher Sonderzeichen
-    RegExp exp = RegExp(r"([A-Za-zÄÖÜäöüß]+['-]?[A-Za-zÄÖÜäöüß]+[.,!?;]?)");
+    RegExp exp = RegExp(r"([A-Za-zÄÖÜäöüß]+(?:['-][A-Za-zÄÖÜäöüß]+)?[.,!?;]?)");
     Iterable<RegExpMatch> matches = exp.allMatches(text);
     return matches.map((m) => m.group(0)!).toList();
   }
@@ -237,7 +249,7 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     }
 
     String currentWord = _words[_currentWordIndex];
-    _sendTextToFrame(text: currentWord, index: _currentWordIndex);
+    _sendTextToFrame(text: currentWord);
 
     // Bestimme die Verzögerung basierend auf Wortlänge und Punctuation
     double delaySeconds = 60.0 / _wpm; // Sekunden pro Wort basierend auf WPM
@@ -250,6 +262,11 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
       delaySeconds *= _shortWordMultiplier; // Kürzere Wörter multiplizieren
     }
 
+    // Sicherstellen, dass die Verzögerung nicht negativ oder zu klein ist
+    delaySeconds = delaySeconds.clamp(0.01, double.infinity);
+
+    _log.fine('Wort: "$currentWord", Verzögerung: $delaySeconds Sekunden');
+
     _wordTimer = Timer(Duration(milliseconds: (delaySeconds * 1000).toInt()),
         () {
       setState(() {
@@ -259,16 +276,15 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
     });
   }
 
-  Future<void> _sendTextToFrame({String? text, bool clear = false, int? index}) async {
+  Future<void> _sendTextToFrame({String? text, bool clear = false}) async {
     try {
       if (frame == null) {
         _log.warning('Frame ist nicht verbunden.');
         return;
       }
 
-      String displayText = clear
-          ? ""
-          : (text ?? ""); // Zeigt nur das aktuelle Wort oder leert das Display
+      String displayText =
+          clear ? "" : (text ?? ""); // Zeigt nur das aktuelle Wort oder leert das Display
 
       await frame!.sendMessage(TxPlainText(
         msgCode: 0x12,
@@ -340,12 +356,14 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                         _startWordIndex = index;
                         _currentWordIndex = _startWordIndex;
                         _pauseRSVP(); // Pause vor dem Setzen des Startpunkts
-                        _log.info('Startwort gesetzt auf Index: $_startWordIndex');
-                        _sendTextToFrame(text: _words[_currentWordIndex], index: _currentWordIndex);
+                        _log.info(
+                            'Startwort gesetzt auf Index: $_startWordIndex');
+                        _sendTextToFrame(text: _words[_currentWordIndex]);
                       });
                     },
                     child: Container(
-                      padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                      padding:
+                          EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
                       color: isCurrent
                           ? Colors.yellow
                           : isStart
@@ -355,10 +373,12 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                         _words[index],
                         style: TextStyle(
                           fontSize: 16,
-                          fontWeight:
-                              isCurrent || isStart ? FontWeight.bold : FontWeight.normal,
-                          color:
-                              isCurrent || isStart ? Colors.black : Colors.white,
+                          fontWeight: isCurrent || isStart
+                              ? FontWeight.bold
+                              : FontWeight.normal,
+                          color: isCurrent || isStart
+                              ? Colors.black
+                              : Colors.white,
                         ),
                       ),
                     ),
@@ -393,59 +413,65 @@ class MainAppState extends State<MainApp> with SimpleFrameAppState {
                     },
                   ),
                   SizedBox(
-                    width: 250,
+                    width: 350,
                     child: Column(
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          'Wortgeschwindigkeit: ${_wpm.toInt()} WPM',
+                          'Word Speed: ${_wpm.toInt()} WPM',
                           style: TextStyle(color: Colors.white),
                         ),
                         Slider(
                           value: _wpm,
-                          min: 400,
+                          min: 50,
                           max: 1200,
-                          divisions: 16, // Schritte von 50 WPM
+                          divisions: 23, // Schritte von 50 WPM
                           label: '${_wpm.toInt()} WPM',
                           onChanged: (value) {
                             setState(() {
                               _wpm = value;
-                              _log.info('RSVP-Geschwindigkeit geändert auf: $_wpm WPM');
+                              _log.info(
+                                  'RSVP-Geschwindigkeit geändert auf: $_wpm WPM');
                             });
                           },
                         ),
                         SizedBox(height: 10),
                         Text(
-                          'Satzzeichen-Multiplikator: ${_punctuationMultiplier.toStringAsFixed(2)}x',
+                          'Punctuation Multiplier: ${_punctuationMultiplier.toStringAsFixed(1)}x',
                           style: TextStyle(color: Colors.white),
                         ),
                         Slider(
                           value: _punctuationMultiplier,
-                          min: 0.01,
-                          max: 1.0,
-                          divisions: 16, // Schritte von 0.1
-                          label: '${_punctuationMultiplier.toStringAsFixed(1)}x',
+                          min: 0.5, // Anpassung auf 0.5 bis 3.0
+                          max: 3.0,
+                          divisions: 25, // Schritte von 0.1
+                          label:
+                              '${_punctuationMultiplier.toStringAsFixed(1)}x',
                           onChanged: (value) {
                             setState(() {
                               _punctuationMultiplier = value;
-                              _log.info('Satzzeichen-Multiplikator geändert auf: $_punctuationMultiplier x');
+                              _log.info(
+                                  'Satzzeichen-Multiplikator geändert auf: $_punctuationMultiplier x');
                             });
                           },
                         ),
                         SizedBox(height: 10),
                         Text(
-                          'Kurze Wörter-Multiplikator: ${_shortWordMultiplier.toStringAsFixed(2)}x',
+                          'Short Word Multiplier: ${_shortWordMultiplier.toStringAsFixed(2)}x',
                           style: TextStyle(color: Colors.white),
                         ),
                         Slider(
                           value: _shortWordMultiplier,
-                          min: 0.01,
-                          max: 1.0,
-                          divisions: 16, // Schritte von 0.05
-                          label: '${_shortWordMultiplier.toStringAsFixed(2)}x',
+                          min: 0.5, // Anpassung auf 0.5 bis 2.0
+                          max: 2.0,
+                          divisions: 30, // Schritte von 0.05
+                          label:
+                              '${_shortWordMultiplier.toStringAsFixed(2)}x',
                           onChanged: (value) {
                             setState(() {
                               _shortWordMultiplier = value;
-                              _log.info('Kurze Wörter-Multiplikator geändert auf: $_shortWordMultiplier x');
+                              _log.info(
+                                  'Kurze Wörter-Multiplikator geändert auf: $_shortWordMultiplier x');
                             });
                           },
                         ),
